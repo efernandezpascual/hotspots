@@ -1,0 +1,10 @@
+"full.name","PA","run","algo","metric.eval","cutoff","sensitivity","specificity","calibration","validation","evaluation"
+"Davallia.canariensis_PA1_RUN1_RF","PA1","RUN1","RF","KAPPA",504,100,100,1,0.737,NA
+"Davallia.canariensis_PA1_RUN1_RF","PA1","RUN1","RF","TSS",504,100,100,1,0.741,NA
+"Davallia.canariensis_PA1_RUN1_RF","PA1","RUN1","RF","AUCroc",505,100,100,1,0.971,NA
+"Davallia.canariensis_PA1_allRun_RF","PA1","allRun","RF","KAPPA",524,100,100,1,NA,NA
+"Davallia.canariensis_PA1_allRun_RF","PA1","allRun","RF","TSS",524,100,100,1,NA,NA
+"Davallia.canariensis_PA1_allRun_RF","PA1","allRun","RF","AUCroc",525,100,100,1,NA,NA
+"Davallia.canariensis_allData_allRun_RF","allData","allRun","RF","KAPPA",494,100,100,1,NA,NA
+"Davallia.canariensis_allData_allRun_RF","allData","allRun","RF","TSS",494,100,100,1,NA,NA
+"Davallia.canariensis_allData_allRun_RF","allData","allRun","RF","AUCroc",495,100,100,1,NA,NA

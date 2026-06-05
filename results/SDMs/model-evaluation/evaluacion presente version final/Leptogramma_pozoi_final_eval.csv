@@ -1,0 +1,10 @@
+"full.name","PA","run","algo","metric.eval","cutoff","sensitivity","specificity","calibration","validation","evaluation"
+"Leptogramma.pozoi_PA1_RUN1_RF","PA1","RUN1","RF","KAPPA",520,100,99.27,0.993,0.853,NA
+"Leptogramma.pozoi_PA1_RUN1_RF","PA1","RUN1","RF","TSS",520,100,99.27,0.993,0.853,NA
+"Leptogramma.pozoi_PA1_RUN1_RF","PA1","RUN1","RF","AUCroc",521,100,99.27,1,0.959,NA
+"Leptogramma.pozoi_PA1_allRun_RF","PA1","allRun","RF","KAPPA",621,100,100,1,NA,NA
+"Leptogramma.pozoi_PA1_allRun_RF","PA1","allRun","RF","TSS",621,100,100,1,NA,NA
+"Leptogramma.pozoi_PA1_allRun_RF","PA1","allRun","RF","AUCroc",622,100,100,1,NA,NA
+"Leptogramma.pozoi_allData_allRun_RF","allData","allRun","RF","KAPPA",525,100,99.415,0.994,NA,NA
+"Leptogramma.pozoi_allData_allRun_RF","allData","allRun","RF","TSS",525,100,99.415,0.994,NA,NA
+"Leptogramma.pozoi_allData_allRun_RF","allData","allRun","RF","AUCroc",524,100,99.415,1,NA,NA

@@ -1,0 +1,10 @@
+"full.name","PA","run","algo","metric.eval","cutoff","sensitivity","specificity","calibration","validation","evaluation"
+"Dryopteris.corleyi_PA1_RUN1_RF","PA1","RUN1","RF","KAPPA",495,100,100,1,1,NA
+"Dryopteris.corleyi_PA1_RUN1_RF","PA1","RUN1","RF","TSS",495,100,100,1,1,NA
+"Dryopteris.corleyi_PA1_RUN1_RF","PA1","RUN1","RF","AUCroc",498,100,100,1,1,NA
+"Dryopteris.corleyi_PA1_allRun_RF","PA1","allRun","RF","KAPPA",540,100,100,1,NA,NA
+"Dryopteris.corleyi_PA1_allRun_RF","PA1","allRun","RF","TSS",540,100,100,1,NA,NA
+"Dryopteris.corleyi_PA1_allRun_RF","PA1","allRun","RF","AUCroc",539,100,100,1,NA,NA
+"Dryopteris.corleyi_allData_allRun_RF","allData","allRun","RF","KAPPA",545,100,100,1,NA,NA
+"Dryopteris.corleyi_allData_allRun_RF","allData","allRun","RF","TSS",545,100,100,1,NA,NA
+"Dryopteris.corleyi_allData_allRun_RF","allData","allRun","RF","AUCroc",545,100,100,1,NA,NA
