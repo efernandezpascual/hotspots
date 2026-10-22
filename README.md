@@ -18,12 +18,10 @@ and storing research projects.
 
 The following materials are available in the folders of this repository:
 
-- `data` Dataset of curated species occurrence points.
-- `src` Scripts in `R` language to perform the SDMs and other analyses
-  in the manuscript.
-- `results` Output of the `R` scripts, including figures, SDMs
-  evaluation and outputs, hotspot cell counts, species-level results,
-  and model projections.
+- `data` Original datasets.
+- `src` Scripts in `R` language to perform the analyses in the
+  manuscript.
+- `results` Output of the `R` scripts.
 - `doc` Manuscript files.
 
 ## Citation

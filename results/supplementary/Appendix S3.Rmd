@@ -1,0 +1,398 @@
+---
+title: "Appendix S3"
+subtitle: "Subtropical refugia in Atlantic Europe become invasion hotspots under climate change"
+output:
+  pdf_document:
+    toc: true
+    number_sections: false
+header-includes:
+  - \usepackage{booktabs}
+  - \usepackage{longtable}
+  - \usepackage{array}
+  - \usepackage{colortbl}
+---
+
+<!--
+Appendix S3: definition of the hotspot threshold and metrics of the native
+hotspots (area, present-day hotspot cells lost, invasive species in the present-day
+hotspot cells, extrapolation), with their sensitivity
+to the hotspot threshold and to the species with poorly validated models.
+Self-contained: the richness curve and the tables are computed in this document from the
+binary maps of the species distribution models, and only the PDF is saved.
+
+Inputs : results/SDMs/<species>/03_projections/rep<r>/binary/ and binary/ (replicate and
+         consensus maps, written by 04_SDMs.R)
+         results/SDMs/summary_evaluation.csv (spatial validation, 04_SDMs.R)
+         results/extrapolation/novel_<scenario>.tif (04_SDMs.R)
+Output : S3_hotspots_supplementary.pdf, next to this file
+Knit with the "Knit" button. The working directory is this folder
+(results/supplementary/), so paths to the rest of the repository start with ../..
+-->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+
+library(terra)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+# kableExtra would load many extra LaTeX packages (tabu, multirow, wrapfig...) that
+# must be installed in the LaTeX distribution; only the few packages needed by these
+# tables are loaded (see header-includes in the YAML header above)
+options(kableExtra.latex.load_packages = FALSE)
+library(kableExtra)
+
+PROJECT_ROOT <- "../.."   # this document is in results/supplementary/
+source(file.path(PROJECT_ROOT, "src", "figure_common.R"), local = knitr::knit_global())   # palette, theme, species lists and hotspot functions
+
+options(knitr.kable.NA = "")      # empty cell instead of NA in tables
+
+# Tables are written directly in LaTeX (not as pandoc tables) so that scale_down can shrink
+# the wide ones to the page width; booktabs rules, no extra space every five rows
+options(knitr.table.format = "latex")
+kable <- function(...) knitr::kable(..., booktabs = TRUE, linesep = "")
+```
+
+```{r analysis}
+# Native species richness in the present (number of species predicted present per cell)
+richness_present <- load_richness(NATIVE_SPECIES, "present")
+
+# Area of the hotspot of the consensus maps (the one shown in the figures)
+consensus_km2 <- as.numeric(global(cellSize(richness_present, unit = "km") *
+                                     (richness_present >= HOTSPOT_THRESHOLD),
+                                   "sum", na.rm = TRUE)[1, 1])
+
+# Number of grid cells at each native richness level (present) and percentage
+# change with respect to the previous richness level
+curve <- as.data.frame(table(values(richness_present))) %>%
+  rename(richness = Var1, n_cells = Freq) %>%
+  mutate(richness = as.integer(as.character(richness))) %>%
+  filter(!is.na(richness), richness > 0) %>%
+  arrange(richness) %>%
+  mutate(pct_change = round(100 * (n_cells - lag(n_cells)) / lag(n_cells), 1))
+
+# Metrics of the native hotspots with each final-model replicate, for the threshold used in
+# the analyses and for thresholds from 5 to 8 native species (sensitivity)
+thresholds <- HOTSPOT_THRESHOLD + (-2:1)
+m_all <- hotspot_metrics(thresholds)
+m <- m_all %>% filter(threshold == HOTSPOT_THRESHOLD)
+n_reps <- sum(m$scenario == "present")
+n_consensus <- ceiling(n_reps / 2)
+
+# Sensitivity to the species with poorly validated models: species whose spatial
+# validation TSS (RF, mean of the folds) is below TSS_MIN are excluded. If native species
+# are excluded, the hotspot threshold is lowered by the same number, so that a hotspot
+# still allows the same number of absent native species.
+TSS_MIN <- 0.4
+validation <- read.csv(file.path(DIR_SDM, "summary_evaluation.csv"))
+weak <- validation %>%
+  filter(algo == "RF", metric.eval == "TSS", mean < TSS_MIN) %>%
+  mutate(Species = gsub(" ", "_", Species))
+weak_native   <- intersect(NATIVE_SPECIES, weak$Species)
+weak_invasive <- intersect(INVASIVE_SPECIES, weak$Species)
+sens_native   <- setdiff(NATIVE_SPECIES, weak_native)
+sens_invasive <- setdiff(INVASIVE_SPECIES, weak_invasive)
+sens_threshold <- HOTSPOT_THRESHOLD - length(weak_native)
+m_sens <- if (length(weak$Species) > 0) {
+  hotspot_metrics(sens_threshold, native_species = sens_native, invasive_species = sens_invasive)
+} else NULL
+```
+
+# Methods notes
+
+```{r methods-note, results='asis'}
+cat(
+  "Native hotspots were defined as the cells where at least n of the nine native species are ",
+  "predicted present. The threshold (n = ", HOTSPOT_THRESHOLD, ") was selected from the distribution ",
+  "of present-day native richness: it is the last richness level before the first transition between ",
+  "consecutive levels with a decline in the number of cells greater than 50% (Table 1, Figures 1 and 2).\n\n",
+  "Three metrics were calculated for the native hotspots in each scenario, as in the main text: ",
+  "(i) the hotspot area; (ii) the percentage of the present-day hotspot cells that are no longer ",
+  "hotspot; and (iii) the mean number of invasive species (out of nine) in the present-day hotspot ",
+  "cells under each scenario, which measures the exposure of the current refugia themselves. The future ",
+  "metrics refer only to the native hotspots, because the question addressed is the fate of the ",
+  "native refugia; invasive hotspots are shown only for the present (main text, Figure 3).\n\n",
+  "The final model of each species was fitted ", n_reps, " times, each with its own random set of ",
+  "pseudo-absences and its own seed (replicates; Appendix S2). Every metric was ",
+  "calculated separately with each replicate (replicate r of all species), and the changes with ",
+  "respect to the present were calculated within each replicate. Tables give the mean of the ",
+  "replicates, the minimum and maximum among them in brackets, and the number of replicates in which ",
+  "the metric increases. The maps of the figures are the consensus of the replicates (a cell is ",
+  "predicted present if at least ", n_consensus, " of the ", n_reps, " replicates predict it); the hotspot ",
+  "threshold was selected on the consensus maps.\n\n",
+  "Three further checks are reported: the percentage of hotspot cells where some predictor is outside ",
+  "its present-day range (extrapolation); the metrics recalculated with hotspot thresholds from ",
+  min(thresholds), " to ", max(thresholds), " native species; and the metrics recalculated without the ",
+  "species whose models had a spatial validation TSS below ", TSS_MIN, ".\n\n",
+  sep = ""
+)
+```
+
+\newpage
+
+# Richness distribution and threshold selection
+
+```{r curve-table}
+kable(curve %>% mutate(pct_change = ifelse(is.na(pct_change), NA, sprintf("%+.1f", pct_change))),
+      col.names = c("Richness (n species)", "N grid cells", "% change vs. previous level"),
+      caption = "Distribution of grid-cell counts across native richness levels (present-day).") %>%
+  kable_styling(latex_options = "striped")
+```
+
+```{r curve-plot, fig.width=7, fig.height=4, fig.cap="Number of grid cells at each level of native species richness (present-day). Dark bars: hotspot cells."}
+curve$class <- factor(ifelse(curve$richness >= HOTSPOT_THRESHOLD, "Hotspot", "Presence area"),
+                      levels = c("Presence area", "Hotspot"))
+
+ggplot(curve, aes(x = factor(richness), y = n_cells, fill = class)) +
+  geom_col(width = 0.7, colour = "black", linewidth = LINE_WIDTH) +
+  scale_fill_manual(values = c("Presence area" = COL[["native_presence"]],
+                               "Hotspot" = COL[["native_hotspot"]]), name = NULL) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  labs(x = "Native species richness per cell", y = "Number of grid cells") +
+  theme_fig()
+```
+
+```{r drop-plot, fig.width=7, fig.height=4, fig.cap="Percentage change in the number of grid cells relative to the previous richness level. Dark bar: the hotspot threshold; dashed line: -50%."}
+drop_df <- curve %>% filter(!is.na(pct_change))
+drop_df$class <- factor(ifelse(drop_df$richness == HOTSPOT_THRESHOLD, "Hotspot threshold", "Other levels"),
+                        levels = c("Other levels", "Hotspot threshold"))
+
+ggplot(drop_df, aes(x = factor(richness), y = pct_change, fill = class)) +
+  geom_col(width = 0.7, colour = "black", linewidth = LINE_WIDTH) +
+  geom_hline(yintercept = -50, linetype = "dashed", linewidth = LINE_WIDTH) +
+  scale_fill_manual(values = c("Other levels" = COL[["native_presence"]],
+                               "Hotspot threshold" = COL[["native_hotspot"]]), name = NULL) +
+  labs(x = "Richness level (n species)", y = "% change in cell count vs. previous level") +
+  theme_fig()
+```
+
+```{r drop-note, results='asis'}
+# Criterion: FIRST transition (from lower to higher richness) whose percentage
+# change is below -50%. It is not the largest drop of the whole series (between
+# the last two levels, based on very few cells), which would not identify the
+# level at which the decline starts to accelerate.
+drop_limit <- -50
+
+cut_point <- drop_df %>%
+  filter(pct_change < drop_limit) %>%
+  slice_min(richness, n = 1)
+
+if (nrow(cut_point) == 0) {
+
+  cat(sprintf(
+    "No transition between consecutive richness levels exceeds a %d%% decline in cell count; the threshold used in the analyses is n = %d.\n\n",
+    abs(drop_limit), HOTSPOT_THRESHOLD))
+
+} else {
+
+  cat(sprintf(
+    paste0(
+      "The decline in cell count becomes markedly steeper starting at the ",
+      "transition from richness level %d to %d (a change of %.1f%%), the first ",
+      "transition exceeding a %d%% decline, compared to more moderate changes ",
+      "(%+.1f%% to %+.1f%%) across all preceding richness levels. The threshold ",
+      "n = %d was therefore selected as the last richness level before this ",
+      "marked acceleration in decline.\n\n"
+    ),
+    cut_point$richness - 1, cut_point$richness, cut_point$pct_change,
+    abs(drop_limit),
+    min(drop_df$pct_change[drop_df$richness < cut_point$richness], na.rm = TRUE),
+    max(drop_df$pct_change[drop_df$richness < cut_point$richness], na.rm = TRUE),
+    cut_point$richness - 1
+  ))
+
+  if (cut_point$richness - 1 != HOTSPOT_THRESHOLD) {
+    cat(sprintf(
+      "NOTE: the threshold used in the analyses (n = %d) differs from the one identified by this criterion.\n\n",
+      HOTSPOT_THRESHOLD))
+  }
+}
+```
+
+\newpage
+
+# Native hotspots and invasive species
+
+```{r metric-helpers}
+# Add the change with respect to the present within each replicate
+with_changes <- function(d) {
+  d %>% group_by(version) %>%
+    mutate(area_change = 100 * (native_km2 / native_km2[scenario == "present"] - 1),
+           fixed_change = inv_fixed - inv_fixed[scenario == "present"]) %>%
+    ungroup()
+}
+mm <- with_changes(m)
+
+# "mean [minimum to maximum among replicates]" for one scenario and variable
+with_range <- function(d, sc, var, digits, sign = FALSE) {
+  x <- d[[var]][d$scenario == sc]
+  f <- paste0("%", if (sign) "+" else "", ".", digits, "f")
+  sprintf(paste0(f, " [", f, " to ", f, "]"), mean(x), min(x), max(x))
+}
+
+# Number of replicates in which the metric increases
+n_up <- function(d, sc, var) paste0(sum(d[[var]][d$scenario == sc] > 0), " of ", n_reps)
+```
+
+```{r hotspot-table}
+hotspot_table <- data.frame(
+  Scenario = unname(SCENARIO_LABELS),
+  area     = sapply(names(SCENARIO_LABELS), function(s) with_range(mm, s, "native_km2", 0)),
+  change   = c("", sapply(FUTURE_KEYS, function(s) with_range(mm, s, "area_change", 0, sign = TRUE))),
+  up       = c("", sapply(FUTURE_KEYS, function(s) n_up(mm, s, "area_change"))),
+  lost     = c("", sapply(FUTURE_KEYS, function(s) with_range(mm, s, "lost_pct", 1))),
+  row.names = NULL
+)
+
+kable(hotspot_table,
+      col.names = c("Scenario", "Area (km\u00b2)", "Change in area (%)",
+                    paste0("Increase (of ", n_reps, ")"), "Hotspot cells lost (%)"),
+      caption = paste0("Native hotspots (at least ", HOTSPOT_THRESHOLD, " of 9 native species) in each scenario: mean of the replicates and, in brackets, minimum to maximum among them. Changes are calculated within each replicate. Increase: number of replicates, out of ", n_reps, ", in which the area increases. Hotspot cells lost: present-day hotspot cells that are no longer hotspot.")) %>%
+  kable_styling(latex_options = c("striped", "scale_down", "hold_position"))
+```
+
+```{r consensus-note, results='asis'}
+cat(sprintf(paste0(
+  "The present-day hotspot of the consensus maps (main text, Figure 3) covers %s km\u00b2, ",
+  "whereas the mean of the replicates in Table 2 is %s km\u00b2 (range %s to %s). The two areas ",
+  "are computed in different orders: in the consensus map each species is first reduced to the ",
+  "cells where at least %d of the %d replicates predict it, and the hotspot is then defined on the ",
+  "sum of those maps; in Table 2 the hotspot is defined within each replicate and its area is then ",
+  "averaged. Because a hotspot requires %d species at the same time, a cell where most species are ",
+  "predicted in most, but not all, replicates is a hotspot in the consensus map but only in some ",
+  "replicates. The consensus map is used for the figures and the replicates for the metrics, which ",
+  "carry their uncertainty and allow the changes to be paired within each replicate.\n\n"),
+  format(round(consensus_km2), big.mark = ","),
+  format(round(mean(mm$native_km2[mm$scenario == "present"])), big.mark = ","),
+  format(round(min(mm$native_km2[mm$scenario == "present"])), big.mark = ","),
+  format(round(max(mm$native_km2[mm$scenario == "present"])), big.mark = ","),
+  n_consensus, n_reps, HOTSPOT_THRESHOLD))
+```
+
+```{r fixed-table}
+fixed_table <- data.frame(
+  Scenario = unname(SCENARIO_LABELS),
+  inv      = sapply(names(SCENARIO_LABELS), function(s) with_range(mm, s, "inv_fixed", 2)),
+  change   = c("", sapply(FUTURE_KEYS, function(s) with_range(mm, s, "fixed_change", 2, sign = TRUE))),
+  up       = c("", sapply(FUTURE_KEYS, function(s) n_up(mm, s, "fixed_change"))),
+  row.names = NULL
+)
+
+kable(fixed_table,
+      col.names = c("Scenario", "Invasive species per cell", "Change vs. present",
+                    paste0("Increase (of ", n_reps, ")")),
+      caption = paste0("Invasive species richness in the PRESENT-DAY native hotspot cells under each scenario (the same cells in all scenarios): mean number of the nine invasive species per cell, mean of the replicates and, in brackets, minimum to maximum among them. Changes are calculated within each replicate. Increase: number of replicates, out of ", n_reps, ", in which it increases.")) %>%
+  kable_styling(latex_options = c("striped", "scale_down", "hold_position"))
+```
+
+```{r novel-table}
+if (all(is.na(mm$novel_pct[mm$scenario != "present"]))) {
+  cat("Extrapolation maps not found (results/extrapolation/).")
+} else {
+  novel_table <- data.frame(
+    Scenario = unname(SCENARIO_LABELS[FUTURE_KEYS]),
+    novel    = sapply(FUTURE_KEYS, function(s) with_range(mm, s, "novel_pct", 1)),
+    row.names = NULL
+  )
+  kable(novel_table,
+        col.names = c("Scenario", "Hotspot cells with extrapolation (%)"),
+        caption = "Percentage of the native hotspot cells of each scenario where some predictor is outside its present-day range in the study region (Random Forest predicts there as at the edge of the calibrated range): mean of the replicates and, in brackets, minimum to maximum among them.") %>%
+    kable_styling(latex_options = c("striped", "hold_position"))
+}
+```
+
+\newpage
+
+# Sensitivity to the hotspot threshold
+
+```{r sensitivity-helpers}
+thr_labels <- paste0("n = ", thresholds)
+by_n <- lapply(thresholds, function(n) with_changes(m_all %>% filter(threshold == n)))
+
+# mean change and replicates in which it is an increase
+change_cell <- function(d, sc, var, digits) {
+  x <- d[[var]][d$scenario == sc]
+  sprintf(paste0("%+.", digits, "f (%d of %d)"), mean(x), sum(x > 0), length(x))
+}
+level_cell <- function(d, sc, var, digits) sprintf(paste0("%.", digits, "f"), mean(d[[var]][d$scenario == sc]))
+
+table_over_n <- function(present_fun, future_fun) {
+  rows <- c("present", FUTURE_KEYS)
+  out <- data.frame(Scenario = unname(SCENARIO_LABELS[rows]), stringsAsFactors = FALSE)
+  for (i in seq_along(thresholds)) {
+    out[[thr_labels[i]]] <- sapply(rows, function(s) {
+      if (s == "present") present_fun(by_n[[i]]) else future_fun(by_n[[i]], s)
+    })
+  }
+  out
+}
+head_n <- c(" " = 1, setNames(length(thresholds), "Hotspot threshold (number of native species)"))
+```
+
+```{r sensitivity-area}
+kable(table_over_n(function(d) level_cell(d, "present", "native_km2", 0),
+                   function(d, s) change_cell(d, s, "area_change", 0)),
+      row.names = FALSE,
+      caption = "Area of the native hotspots with other thresholds: mean area in the present (square kilometres) and mean change in area with respect to the present (percent); in brackets, number of replicates in which the area increases.") %>%
+  add_header_above(head_n) %>%
+  kable_styling(latex_options = c("striped", "scale_down", "hold_position"))
+```
+
+```{r sensitivity-lost}
+lost_table <- table_over_n(function(d) "",
+                           function(d, s) with_range(d, s, "lost_pct", 1))[-1, ]
+
+kable(lost_table, row.names = FALSE,
+      caption = "Present-day native hotspot cells lost (percent) with other thresholds: mean of the replicates and, in brackets, minimum to maximum among them.") %>%
+  add_header_above(head_n) %>%
+  kable_styling(latex_options = c("striped", "scale_down", "hold_position"))
+```
+
+```{r sensitivity-fixed}
+kable(table_over_n(function(d) level_cell(d, "present", "inv_fixed", 2),
+                   function(d, s) change_cell(d, s, "fixed_change", 2)),
+      row.names = FALSE,
+      caption = "Invasive species in the present-day native hotspot cells with other thresholds: mean in the present and mean change with respect to the present; in brackets, number of replicates in which it increases.") %>%
+  add_header_above(head_n) %>%
+  kable_styling(latex_options = c("striped", "scale_down", "hold_position"))
+```
+
+\newpage
+
+# Sensitivity to the species with poorly validated models
+
+```{r species-sensitivity, results='asis'}
+if (is.null(m_sens)) {
+  cat(sprintf("All species have a spatial validation TSS of at least %.1f; no sensitivity analysis is needed.\n\n", TSS_MIN))
+} else {
+  cat(sprintf(paste0(
+    "Species with a spatial validation TSS below %.1f (Appendix S2): %s. ",
+    "The metrics were recalculated without them: native hotspots with %d native species and a ",
+    "threshold of %d (so that, as in the main analysis, at most %d native species may be absent ",
+    "from a hotspot cell), and invasive richness out of %d invasive species.\n\n"),
+    TSS_MIN,
+    paste(sprintf("*%s*", species_display(weak$Species)), collapse = ", "),
+    length(sens_native), sens_threshold, length(NATIVE_SPECIES) - HOTSPOT_THRESHOLD,
+    length(sens_invasive)))
+}
+```
+
+```{r species-sensitivity-table}
+if (!is.null(m_sens)) {
+  ms <- with_changes(m_sens)
+  sens_table <- data.frame(
+    Scenario = unname(SCENARIO_LABELS[FUTURE_KEYS]),
+    area     = sapply(FUTURE_KEYS, function(s) change_cell(ms, s, "area_change", 0)),
+    lost     = sapply(FUTURE_KEYS, function(s) with_range(ms, s, "lost_pct", 1)),
+    fixed    = sapply(FUTURE_KEYS, function(s) change_cell(ms, s, "fixed_change", 2)),
+    row.names = NULL
+  )
+  kable(sens_table,
+        col.names = c("Scenario", "Change in area (%)", "Hotspot cells lost (%)",
+                      "Invasive species in present-day hotspot cells (change)"),
+        caption = paste0("Native hotspot metrics without the species with poorly validated models: mean of the replicates; in brackets, number of replicates (out of ", n_reps, ") in which the metric increases, or minimum to maximum for the hotspot cells lost. Present-day values: hotspot area ",
+                         round(mean(ms$native_km2[ms$scenario == "present"])), " km\u00b2; ",
+                         sprintf("%.2f", mean(ms$inv_fixed[ms$scenario == "present"])), " invasive species per hotspot cell.")) %>%
+    kable_styling(latex_options = c("striped", "scale_down", "hold_position"))
+}
+```

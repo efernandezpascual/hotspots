@@ -1,0 +1,225 @@
+---
+title: "Appendix S1"
+subtitle: "Subtropical refugia in Atlantic Europe become invasion hotspots under climate change"
+output:
+  pdf_document:
+    toc: true
+    number_sections: false
+header-includes:
+  - \usepackage{booktabs}
+  - \usepackage{longtable}
+  - \usepackage{array}
+  - \usepackage{colortbl}
+---
+
+<!--
+Step 2 of the workflow: selection of the predictor variables.
+Self-contained: the whole analysis (extraction of the candidate variables at the
+occurrence points, correlation matrix, PCA and final decision) is computed when
+knitting, with the functions of src/variable_selection_common.R (the same ones
+used by src/02_variable_selection.R); only the PDF is saved.
+
+Inputs : data/raster/present/<variable>_present.tif (26 layers, 01_present_layers.R)
+         data/raster/future/bio10_<ssp>_2071-2100.tif (extrapolation of bio10, 03_future_layers.R)
+         data/species-points.csv
+Output : S1_variable_selection_supplementary.pdf, next to this file
+Knit with the "Knit" button. The working directory is this folder
+(results/supplementary/), so paths to the rest of the repository start with ../..
+-->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+
+library(terra)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+# kableExtra would load many extra LaTeX packages (tabu, multirow, wrapfig...) that
+# must be installed in the LaTeX distribution; only the few packages needed by these
+# tables are loaded (see header-includes in the YAML header above)
+options(kableExtra.latex.load_packages = FALSE)
+library(kableExtra)
+
+PROJECT_ROOT <- "../.."   # this document is in results/supplementary/
+source(file.path(PROJECT_ROOT, "src", "figure_common.R"), local = knitr::knit_global())   # palette, theme and species lists
+```
+
+```{r analysis}
+# The analysis and the reasons of the final decision are defined in
+# src/variable_selection_common.R, shared with src/02_variable_selection.R
+source(file.path(PROJECT_ROOT, "src", "variable_selection_common.R"), local = knitr::knit_global())
+
+candidates   <- load_candidate_values()
+pca_data     <- candidates$data
+value_matrix <- candidates$values
+n_incomplete <- candidates$n_incomplete
+
+cor_matrix  <- cor(value_matrix, use = "pairwise.complete.obs")
+pairs_table <- correlation_pairs(cor_matrix)
+pca         <- prcomp(value_matrix, scale. = TRUE, center = TRUE)
+decision    <- selection_decision(cor_matrix, pca, candidates$min_cells)
+
+candidate_vars    <- VS_CANDIDATE_VARS
+no_future_vars    <- VS_NO_FUTURE
+```
+
+# Methods notes
+
+```{r methods-note, results='asis'}
+cat(sprintf(
+  paste0(
+    "An expanded candidate set of %d variables was evaluated for inclusion in the ",
+    "species distribution models: the standard BIO1-19 bioclimatic predictors, two ",
+    "edaphic variables (pH, sand content), and five CHELSA-BIOCLIM+ variables ",
+    "(Brun et al. 2022) addressing atmospheric moisture, cloud cover and frost: ",
+    "near-surface relative humidity (hurs), vapour pressure deficit (vpd), cloud ",
+    "area fraction (clt), climate moisture index (cmi) and frost change frequency ",
+    "(fcf). hurs, vpd, clt and cmi are provided only for the period 1980-2018, ",
+    "without future-scenario layers; they were evaluated to identify which of the ",
+    "variables available for the future best represent them. ",
+    "Variable selection combined four criteria: pairwise Pearson correlation among ",
+    "all candidates (exclusion threshold |r| > 0.7), the structure of a Principal ",
+    "Component Analysis (PCA) ordination of the same variables, ecological ",
+    "interpretability for this species assemblage and, for the variables with ",
+    "future layers, the extent to which their future values (2071-2100) fall outside ",
+    "the present-day range of the study region, which would force the models to ",
+    "extrapolate. Candidate variables were ",
+    "extracted at all occurrence points (n = %s records, %d species). ",
+    "Soil layers (SoilGrids 2.0, 0-5 cm): cells without a soil estimate (urban areas ",
+    "and water bodies, coded as 0 in the source files) were set to missing and filled ",
+    "with the mean of the neighbouring cells before resampling to the climate grid, so ",
+    "that records in towns and on the coast keep a realistic soil value.\n\n"
+  ),
+  length(candidate_vars),
+  format(nrow(pca_data), big.mark = ","),
+  length(unique(pca_data$species))
+))
+if (n_incomplete > 0) {
+  cat(sprintf(
+    "%d records without a value in at least one variable (outside the region mask) were excluded.\n\n",
+    n_incomplete
+  ))
+}
+```
+
+\newpage
+
+# Pairwise correlations
+
+```{r pairs-note, results='asis'}
+cat("\n\n*'Includes variable without future layer' flags pairs involving hurs,",
+    "vpd, clt or cmi. These four variables have no future-scenario layers in",
+    "CHELSA-BIOCLIM+ and cannot be included in the projective models",
+    "regardless of their correlation structure (see the final decision",
+    "section below).*\n\n")
+```
+
+```{r pairs-table}
+kable(pairs_table,
+      digits = 3,
+      col.names = c("Variable 1", "Variable 2", "r", "Includes variable without future layer"),
+      caption = sprintf("Variable pairs with |r| > %.1f among the candidate variables.", VS_R_THRESHOLD)) %>%
+  kable_styling(latex_options = c("striped", "scale_down"), font_size = 9)
+```
+
+\newpage
+
+# Principal Component Analysis
+
+```{r pca-variance}
+kable(round(summary(pca)$importance[, 1:5], 3),
+      caption = "Variance explained by the first 5 principal components.") %>%
+  kable_styling(latex_options = c("striped", "scale_down"))
+```
+
+```{r pca-loadings}
+kable(round(pca$rotation[, 1:3], 3),
+      caption = "Variable loadings on the first three principal components.") %>%
+  kable_styling(latex_options = c("striped", "scale_down"))
+```
+
+```{r biplot, fig.width=7, fig.height=6, fig.align="center", out.width="95%", fig.cap="PCA biplot of the candidate variables at the occurrence points of native and invasive species. Thick arrows and bold labels: final predictors; dashed arrows: variables with no future-scenario layer."}
+group <- group_factor(pca_data$species %in% species_label(NATIVE_SPECIES))
+
+scores <- as.data.frame(pca$x[, 1:2])
+scores$group <- group
+
+explained <- summary(pca)$importance[2, 1:2] * 100
+
+ARROW_TYPES <- c("Final predictor", "Other candidate", "No future layer")
+arrow_scale <- max(abs(scores[, 1:2])) * 0.8
+loadings <- as.data.frame(pca$rotation[, 1:2]) * arrow_scale
+loadings$variable <- rownames(loadings)
+loadings$type <- factor(
+  ifelse(loadings$variable %in% decision$selected, ARROW_TYPES[1],
+         ifelse(loadings$variable %in% no_future_vars, ARROW_TYPES[3], ARROW_TYPES[2])),
+  levels = ARROW_TYPES)
+loadings$face <- ifelse(loadings$type == ARROW_TYPES[1], "bold", "plain")
+
+# Labels are repelled from each other when ggrepel is installed (many arrows overlap)
+label_layer <- if (requireNamespace("ggrepel", quietly = TRUE)) {
+  ggrepel::geom_text_repel(
+    data = loadings, aes(x = PC1, y = PC2, label = variable, fontface = face),
+    colour = "black", size = FONT_SIZE / ggplot2::.pt * 0.75,
+    segment.colour = "grey60", segment.size = 0.2, max.overlaps = Inf,
+    box.padding = 0.15, min.segment.length = 0.2, seed = 1)
+} else {
+  geom_text(data = loadings, aes(x = PC1, y = PC2, label = variable, fontface = face),
+            colour = "black", size = FONT_SIZE / ggplot2::.pt * 0.75, vjust = -0.5)
+}
+
+ggplot() +
+  geom_point(data = scores, aes(x = PC1, y = PC2, colour = group),
+             alpha = 0.3, size = 1) +
+  stat_ellipse(data = scores, aes(x = PC1, y = PC2, colour = group), linewidth = 0.8) +
+  geom_segment(data = loadings,
+               aes(x = 0, y = 0, xend = PC1, yend = PC2,
+                   linetype = type, linewidth = type),
+               arrow = arrow(length = unit(0.15, "cm")), colour = "black") +
+  label_layer +
+  scale_colour_manual(values = GROUP_COLOURS, name = NULL) +
+  scale_linetype_manual(values = setNames(c("solid", "solid", "dashed"), ARROW_TYPES),
+                        name = NULL, drop = FALSE) +
+  scale_linewidth_manual(values = setNames(c(0.9, 0.3, 0.3), ARROW_TYPES),
+                         name = NULL, drop = FALSE) +
+  labs(x = sprintf("PC1 (%.1f%%)", explained[1]),
+       y = sprintf("PC2 (%.1f%%)", explained[2])) +
+  guides(colour = guide_legend(order = 1, override.aes = list(alpha = 1, size = 2.5)),
+         linetype = guide_legend(order = 2), linewidth = guide_legend(order = 2)) +
+  theme_fig() +
+  theme(legend.box = "vertical")
+```
+
+\newpage
+
+# Final variable selection decision
+
+```{r decision-intro, results='asis'}
+cat(sprintf(
+  "The final predictor set retained for species distribution modelling is: **%s**.\n\n",
+  paste(sub("^PH$", "pH", toupper(decision$selected)), collapse = ", ")
+))
+cat(sprintf("The reasons for including each of them and for excluding the remaining %d candidate variables are given below.\n\n",
+            length(candidate_vars) - length(decision$selected)))
+```
+
+```{r decision-retained, results='asis'}
+cat("## Reasons for the selected predictors\n\n")
+for (v in names(decision$retained)) {
+  cat(sprintf("**%s**: %s\n\n", v, decision$retained[[v]]))
+}
+```
+
+```{r selected-correlations}
+kable(cor_matrix[decision$selected, decision$selected],
+      digits = 3,
+      caption = "Pearson correlations among the final predictors at the occurrence points.") %>%
+  kable_styling(latex_options = c("striped"))
+```
+
+```{r decision-table, results='asis'}
+cat("## Reasons for excluding the other candidate variables\n\n")
+for (v in names(decision$excluded)) {
+  cat(sprintf("**%s**: %s\n\n", decision_label(v), decision$excluded[[v]]))
+}
+```

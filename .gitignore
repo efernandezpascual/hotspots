@@ -2,3 +2,11 @@
 .Rhistory
 .RData
 .Ruserdata
+.gitignore
+/data/photos/
+/data/raster/download/
+/results/SDMs/
+/results/extrapolation/
+/jorge/
+/prunus/
+/doc/

@@ -1,0 +1,376 @@
+---
+title: "Appendix S2"
+subtitle: "Subtropical refugia in Atlantic Europe become invasion hotspots under climate change"
+output:
+  pdf_document:
+    toc: true
+    number_sections: false
+header-includes:
+  - \usepackage{booktabs}
+  - \usepackage{longtable}
+  - \usepackage{array}
+  - \usepackage{colortbl}
+---
+
+<!--
+Step 4 of the workflow: species distribution models (maps, evaluation, variable
+importance and response curves for each species).
+Self-contained: everything is read from the outputs of 04_SDMs.R and only the
+PDF is saved.
+
+Inputs : results/SDMs/ (global tables and per-species folders, 04_SDMs.R)
+         results/extrapolation/extrapolation_summary.csv (04_SDMs.R)
+         data/shape/IberoAtlantic.shp
+Output : S2_SDMs_supplementary.pdf, next to this file
+Knit with the "Knit" button. The working directory is this folder
+(results/supplementary/), so paths to the rest of the repository start with ../..
+-->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+
+library(terra)
+library(sf)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(ggplot2)
+library(knitr)
+# kableExtra would load many extra LaTeX packages (tabu, multirow, wrapfig...) that
+# must be installed in the LaTeX distribution; only the few packages needed by these
+# tables are loaded (see header-includes in the YAML header above)
+options(kableExtra.latex.load_packages = FALSE)
+library(kableExtra)
+
+PROJECT_ROOT <- "../.."   # this document is in results/supplementary/
+source(file.path(PROJECT_ROOT, "src", "figure_common.R"), local = knitr::knit_global())   # palette, theme, species lists and scenario labels
+
+options(knitr.kable.NA = "")    # empty cell instead of NA in tables
+
+# Species with results, in the fixed order of the figures (native first)
+sdm_dirs     <- list.dirs(DIR_SDM, recursive = FALSE, full.names = FALSE)
+species_list <- ALL_SPECIES[ALL_SPECIES %in% sdm_dirs]
+if (length(setdiff(sdm_dirs, ALL_SPECIES)) > 0) {
+  warning("Folders in ", DIR_SDM, " not in the species lists: ",
+          paste(setdiff(sdm_dirs, ALL_SPECIES), collapse = ", "))
+}
+
+# Study region polygon (outline of the maps)
+region <- st_read(file.path(PROJECT_ROOT, "data/shape/IberoAtlantic.shp"), quiet = TRUE) %>% st_transform(4326)
+bb     <- st_bbox(region)
+
+# Parameters of the spatial validation and final models (same for all species)
+params <- readRDS(file.path(DIR_SDM, species_list[1], "parameters.rds"))
+n_reps <- n_replicates()
+n_consensus <- ceiling(n_reps / 2)   # replicates needed for a consensus presence
+
+# Records and grid cells with presence of each species (parameters.rds of 04_SDMs.R)
+species_n <- bind_rows(lapply(species_list, function(sp) {
+  p <- readRDS(file.path(DIR_SDM, sp, "parameters.rds"))
+  data.frame(Species = sp, records = p$n_presences,
+             cells = if (is.null(p$n_presence_cells)) NA_integer_ else p$n_presence_cells)
+}))
+
+# Sorts a table by the fixed species order and shows manuscript names
+# (species names in the result tables may be written with spaces or underscores)
+order_species <- function(df) {
+  df %>%
+    mutate(Species = gsub(" ", "_", Species),
+           .order = match(Species, ALL_SPECIES)) %>%
+    arrange(.order) %>%
+    mutate(Species = species_display(Species)) %>%
+    select(-.order)
+}
+```
+
+# Methods notes
+
+```{r methods-note, results='asis'}
+cat(sprintf(
+  paste0(
+    "Species distribution models were fitted with the present-day values of three ",
+    "predictors (BIO6, BIO14 and topsoil pH; see Appendix S1) and ",
+    "projected, without refitting, onto four scenarios for 2071-2100: SSP1-2.6, ",
+    "SSP3-7.0 and SSP5-8.5 (BIO6 and BIO14 of each scenario, ensemble mean of four ",
+    "global climate models) and a 'Subtropical' scenario that combines the BIO6 of ",
+    "SSP5-8.5 with present-day BIO14, so that it differs from SSP5-8.5 only in summer ",
+    "drought. Soil pH was kept constant in all scenarios. MPI-ESM1-2-HR was excluded ",
+    "from the climate model ensemble (see main text).\n\n",
+    "For each species, one presence per grid cell (30 arc-seconds) was kept and the ",
+    "same number of pseudo-absences was drawn at random across the study region ",
+    "(prevalence 0.5; Table 1). Model performance was assessed with spatially blocked ",
+    "cross-validation (blocks of %d km assigned at random to k = %d folds; %d sets of ",
+    "pseudo-absences; R package blockCV), comparing Random Forest (RF) and Generalized ",
+    "Boosted Models (GBM) (Tables 2 and 3). The projective models used RF only, fitted ",
+    "%d times (replicates), each with its own set of pseudo-absences and its own random ",
+    "seed. Each replicate was fitted with all the data and converted to presence/absence ",
+    "with the cutoff that maximises the True Skill Statistic (TSS) on its calibration ",
+    "data (Table 4). The maps shown are the consensus of the replicates: a cell is shown ",
+    "as present when at least %d of the %d replicates predict it.\n\n"
+  ),
+  as.integer(params$block_size / 1000), params$k, params$n_pa, n_reps,
+  n_consensus, n_reps
+))
+```
+
+```{r records-table}
+records <- species_n %>%
+  mutate(group = ifelse(Species %in% NATIVE_SPECIES, "Native", "Invasive")) %>%
+  order_species()
+
+kable(records[, c("Species", "group", "records", "cells")],
+      col.names = c("Species", "Group", "Records", "Grid cells with presence"),
+      caption = "Occurrence records of each species and number of grid cells with at least one record (one presence per cell was used in the models).") %>%
+  column_spec(1, italic = TRUE) %>%
+  kable_styling(latex_options = c("striped", "hold_position"))
+```
+
+\newpage
+
+# Species distribution models
+
+```{r maps, results='asis', fig.width=7, fig.height=8, fig.align="center"}
+# Binary map of each scenario for one species: predicted presence cells are
+# coloured with the dark shade of the group (green: native, gold: invasive).
+species_maps <- function(species) {
+
+  cells <- bind_rows(lapply(names(SCENARIO_LABELS), function(s) {
+    r <- rast(binary_path(species, s))
+    d <- as.data.frame(r, xy = TRUE, na.rm = FALSE)
+    names(d)[3] <- "value"
+    d$presence <- ifelse(d$value == 1, "Present", NA)
+    d$scenario <- s
+    d[, c("x", "y", "presence", "scenario")]
+  }))
+  cells$scenario <- scenario_factor(cells$scenario)
+
+  colour <- if (species %in% NATIVE_SPECIES) COL[["native_hotspot"]] else COL[["invasive_hotspot"]]
+
+  ggplot() +
+    geom_raster(data = cells, aes(x = x, y = y, fill = presence)) +
+    scale_fill_manual(values = c("Present" = colour), na.value = "transparent",
+                      na.translate = FALSE, guide = "none") +
+    geom_sf(data = region, fill = NA, colour = "black", linewidth = 0.3) +
+    coord_sf(xlim = c(bb["xmin"], bb["xmax"]), ylim = c(bb["ymin"], bb["ymax"])) +
+    facet_wrap(~ scenario, ncol = 2, drop = FALSE) +
+    theme_fig_map() +
+    theme(legend.position = "none",
+          axis.text = element_text(size = 7))
+}
+
+for (sp in species_list) {
+  cat("\n\n## *", species_display(sp), "*\n\n", sep = "")
+  print(species_maps(sp))
+  cat("\n\\newpage\n")
+}
+```
+
+# Model performance evaluation
+
+```{r performance-table}
+summary_eval <- read_csv(file.path(DIR_SDM, "summary_evaluation.csv"), show_col_types = FALSE)
+n_folds <- params$k * params$n_pa
+
+# Mean +- SD of each metric by species and algorithm (spatial block cross-validation)
+performance <- summary_eval %>%
+  mutate(value = sprintf("%.3f \u00b1 %.3f", mean, sd)) %>%
+  select(Species, algo, metric.eval, value) %>%
+  pivot_wider(names_from = c(algo, metric.eval), values_from = value) %>%
+  select(Species, any_of(c("RF_AUCroc", "RF_TSS", "GBM_AUCroc", "GBM_TSS")))
+
+# Number of folds evaluated for each algorithm (TSS), shown as "RF / GBM"
+folds_eval <- summary_eval %>%
+  filter(metric.eval == "TSS") %>%
+  select(Species, algo, n) %>%
+  pivot_wider(names_from = algo, values_from = n) %>%
+  transmute(Species,
+            folds = sprintf("%s / %s", RF, ifelse(is.na(GBM), "-", as.character(GBM))))
+
+performance <- performance %>%
+  left_join(folds_eval, by = "Species") %>%
+  order_species()
+
+kable(performance,
+      col.names = c(gsub("_", " ", setdiff(names(performance), "folds")), "Folds (RF / GBM)"),
+      caption = sprintf("Spatial block cross-validation performance: mean \u00b1 SD across the validation folds (%d pseudo-absence sets \u00d7 %d folds = %d). Folds: number of folds that could be evaluated for each algorithm; fewer than %d when a fold contains no presence of the species or the model could not be fitted.",
+                        params$n_pa, params$k, n_folds, n_folds)) %>%
+  column_spec(1, italic = TRUE) %>%
+  kable_styling(latex_options = c("striped", "scale_down", "hold_position"))
+```
+
+```{r gbm-na-note, results='asis'}
+# Species without GBM results (detected from the data)
+species_with_gbm <- summary_eval %>% filter(algo == "GBM") %>% distinct(Species) %>% pull(Species)
+species_no_gbm   <- setdiff(unique(summary_eval$Species), species_with_gbm)
+if (length(species_no_gbm) > 0) {
+  cat("\n\n*Note: GBM models could not be fitted for the following species with few records: ",
+      paste(species_display(gsub(" ", "_", species_no_gbm)), collapse = ", "),
+      ". Only RF results are reported for them.*\n\n", sep = "")
+}
+```
+
+```{r paired-table}
+# Paired comparison of the two algorithms: both were evaluated on the same folds, so the
+# difference GBM - RF is computed within each fold (same pseudo-absence set and fold)
+evaluations <- read_csv(file.path(DIR_SDM, "evaluation_all_species.csv"), show_col_types = FALSE)
+
+paired <- evaluations %>%
+  filter(run != "allRun", metric.eval == "TSS", !is.na(validation)) %>%
+  select(Species, PA, run, algo, validation) %>%
+  pivot_wider(names_from = algo, values_from = validation) %>%
+  filter(!is.na(RF), !is.na(GBM)) %>%
+  mutate(diff = GBM - RF) %>%
+  group_by(Species) %>%
+  summarise(mean = mean(diff), sd = sd(diff), n = n(),
+            gbm_higher = sum(diff > 0), .groups = "drop") %>%
+  transmute(Species,
+            diff = sprintf("%+.3f \u00b1 %.3f", ifelse(abs(mean) < 0.0005, 0, mean), sd),
+            higher = sprintf("%d of %d", gbm_higher, n)) %>%
+  order_species()
+
+kable(paired,
+      col.names = c("Species", "TSS difference, GBM - RF (mean \u00b1 SD)", "Folds with higher TSS for GBM"),
+      caption = "Paired comparison of the two algorithms in the spatial block cross-validation: difference in TSS between GBM and RF computed within each fold (positive values: GBM higher).") %>%
+  column_spec(1, italic = TRUE) %>%
+  kable_styling(latex_options = c("striped", "scale_down", "hold_position"))
+```
+
+```{r threshold-table}
+thresholds <- read_csv(file.path(DIR_SDM, "TSS_threshold_all_species.csv"), show_col_types = FALSE) %>%
+  group_by(Species) %>%
+  summarise(mean = mean(TSS_threshold), min = min(TSS_threshold), max = max(TSS_threshold),
+            .groups = "drop") %>%
+  transmute(Species, mean = sprintf("%.3f", mean), range = sprintf("%.3f - %.3f", min, max)) %>%
+  order_species()
+
+kable(thresholds, col.names = c("Species", "Mean cutoff", "Range among replicates"),
+      caption = sprintf("Cutoff used to convert the suitability maps to presence/absence: the value that maximises TSS for the RF model fitted with all the data of each replicate (mean and range of the %d replicates).", n_reps)) %>%
+  column_spec(1, italic = TRUE) %>%
+  kable_styling(latex_options = c("striped", "hold_position"))
+```
+
+# Variable contribution
+
+```{r var-importance-table}
+# Importance of the variables in the final models: RF model fitted with all the data
+# ("_allData_allRun_", the model that is projected), mean of the replicates
+var_importance <- bind_rows(lapply(species_list, function(sp) {
+  f <- file.path(DIR_SDM, sp, "02_final_models", "variable_importance_final.csv")
+  if (!file.exists(f)) return(NULL)
+  df <- read_csv(f, show_col_types = FALSE)
+  df$Species <- sp
+  df
+}))
+
+full_model <- if ("full.name" %in% names(var_importance)) {
+  grepl("_allData_allRun_RF$", var_importance$full.name)
+} else {
+  var_importance$run == "allRun" & var_importance$PA == "allData"
+}
+
+var_importance_wide <- var_importance[full_model, ] %>%
+  group_by(Species, expl.var) %>%
+  summarise(var.imp = mean(var.imp, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = expl.var, values_from = var.imp) %>%
+  select(Species, any_of(c("bio06", "bio14", "ph"))) %>%
+  order_species()
+
+kable(var_importance_wide, digits = 3,
+      col.names = c("Species", "BIO6", "BIO14", "pH")[seq_len(ncol(var_importance_wide))],
+      caption = sprintf("Importance of the predictors in the final RF models (fitted with all the data): 1 minus the correlation between the predictions with the original values and with the values of the predictor randomly permuted (biomod2; mean of 3 permutations and of the %d replicates). Higher values indicate a larger contribution.", n_reps)) %>%
+  column_spec(1, italic = TRUE) %>%
+  kable_styling(latex_options = c("striped", "hold_position"))
+```
+
+# Extrapolation in the future scenarios
+
+```{r extrapolation-table}
+extrapolation <- read_csv(file.path(PROJECT_ROOT, "results/extrapolation/extrapolation_summary.csv"),
+                          show_col_types = FALSE) %>%
+  mutate(pct = ifelse(variable == "any", pct_above,
+                      coalesce(pct_below, 0) + coalesce(pct_above, 0)),
+         variable = factor(variable, levels = c("bio06", "bio14", "ph", "any"),
+                           labels = c("BIO6", "BIO14", "pH", "Any predictor"))) %>%
+  select(scenario, variable, pct) %>%
+  pivot_wider(names_from = variable, values_from = pct) %>%
+  mutate(scenario = scenario_factor(scenario, FUTURE_KEYS)) %>%
+  arrange(scenario)
+
+kable(extrapolation, digits = 2,
+      col.names = c("Scenario", names(extrapolation)[-1]),
+      caption = "Percentage of the cells of the study region where the value of a predictor in the future scenario is outside its present-day range in the region (the calibration range of the models). In these cells Random Forest predicts as at the edge of the calibrated range. Soil pH does not change between scenarios.") %>%
+  kable_styling(latex_options = c("striped", "hold_position"))
+```
+
+\newpage
+
+# Response curves for each species
+
+```{r response-curves, results='asis', fig.width=7, fig.height=2.4, fig.align="center"}
+cat(sprintf(paste0(
+  "*Partial response of the RF model fitted with all the data in the first replicate: ",
+  "predicted suitability along each predictor, with the other predictors fixed at their ",
+  "mean. Ticks on the horizontal axis: values of the predictor at the presences and ",
+  "pseudo-absences.*\n\n")))
+
+VAR_LABELS <- c(bio06 = "BIO6 (\u00b0C)", bio14 = "BIO14 (mm)", ph = "pH")
+
+# Response curves redrawn from the values saved by 04_SDMs.R (response_curves_RF.csv);
+# if that file is not available, the image drawn by biomod2 is included instead
+response_plot <- function(sp) {
+  f <- file.path(DIR_SDM, sp, "02_final_models", "response_curves", "response_curves_RF.csv")
+  if (!file.exists(f)) return(NULL)
+  d <- tryCatch(read_csv(f, show_col_types = FALSE), error = function(e) NULL)
+  if (is.null(d) || !all(c("expl.name", "expl.val", "pred.val") %in% names(d))) return(NULL)
+
+  d$expl.name <- factor(d$expl.name, levels = names(VAR_LABELS), labels = unname(VAR_LABELS))
+  colour <- if (sp %in% NATIVE_SPECIES) COL[["native_hotspot"]] else COL[["invasive_hotspot"]]
+
+  # Values of the predictors at the calibration points (rug)
+  rug_file <- file.path(DIR_SDM, sp, "02_final_models", "rep1", "formatted_final_data.rds")
+  rug <- NULL
+  if (file.exists(rug_file)) {
+    rug <- tryCatch({
+      requireNamespace("biomod2", quietly = TRUE)   # class of the saved object
+      fd <- readRDS(rug_file)
+      x  <- tidyr::pivot_longer(as.data.frame(fd@data.env.var), everything(),
+                                names_to = "expl.name", values_to = "expl.val")
+      x  <- x[x$expl.name %in% names(VAR_LABELS), ]
+      x$expl.name <- factor(x$expl.name, levels = names(VAR_LABELS), labels = unname(VAR_LABELS))
+      x
+    }, error = function(e) NULL)
+  }
+
+  # biomod2 may give the predictions on a 0-1000 scale
+  if (max(d$pred.val, na.rm = TRUE) > 1.5) d$pred.val <- d$pred.val / 1000
+
+  p <- ggplot(d, aes(x = expl.val, y = pred.val)) +
+    geom_line(colour = colour, linewidth = 0.6) +
+    facet_wrap(~ expl.name, nrow = 1, scales = "free_x", strip.position = "bottom") +
+    scale_y_continuous(limits = c(0, 1)) +
+    labs(x = NULL, y = "Predicted suitability") +
+    theme_fig(base_size = 9) +
+    theme(strip.placement = "outside", strip.background = element_blank(),
+          strip.text = element_text(face = "plain"))
+  if (!is.null(rug)) {
+    p <- p + geom_rug(data = rug, aes(x = expl.val), inherit.aes = FALSE,
+                      sides = "b", alpha = 0.3, linewidth = 0.2, length = grid::unit(0.03, "npc"))
+  }
+  p
+}
+
+for (sp in species_list) {
+  cat("\n\n## *", species_display(sp), "*\n\n", sep = "")
+  p <- response_plot(sp)
+  if (!is.null(p)) {
+    print(p)
+  } else {
+    png_file <- file.path(DIR_SDM, sp, "02_final_models", "response_curves", "response_curves_RF.png")
+    if (file.exists(png_file)) {
+      cat(sprintf("![](%s){width=75%%}\n\n", png_file))
+    } else {
+      cat("*(response curve file not found)*\n\n")
+    }
+  }
+}
+```
