@@ -161,6 +161,15 @@ species_maps <- function(species) {
 for (sp in species_list) {
   cat("\n\n## *", species_display(sp), "*\n\n", sep = "")
   print(species_maps(sp))
+  # Common caption of the block of maps (Figure S2.1), below the first map
+  if (sp == species_list[1]) {
+    cat(sprintf(paste0(
+      "\n\nFigure S2.1: Predicted presence of each species in the present and in the four scenarios ",
+      "for 2071-2100, one species per page (pages 3-20; native species in green, invasive species in ",
+      "gold). Shaded cells: predicted present in at least %d of the %d Random Forest replicates. Black ",
+      "outline: study region. Subtropical: BIO6 of SSP5-8.5 with present-day BIO14.\n\n"),
+      n_consensus, n_reps))
+  }
   cat("\n\\newpage\n")
 }
 ```
@@ -307,11 +316,12 @@ kable(extrapolation, digits = 2,
 # Response curves for each species
 
 ```{r response-curves, results='asis', fig.width=7, fig.height=2.4, fig.align="center"}
-cat(sprintf(paste0(
-  "*Partial response of the RF model fitted with all the data in the first replicate: ",
-  "predicted suitability along each predictor, with the other predictors fixed at their ",
-  "mean. Ticks on the horizontal axis: values of the predictor at the presences and ",
-  "pseudo-absences.*\n\n")))
+# Common caption of the block of response curves (Figure S2.2)
+cat(paste0(
+  "Figure S2.2: Partial response curves of each species in the Random Forest model fitted with ",
+  "all the data in the first replicate: predicted suitability along each predictor, with the other ",
+  "predictors fixed at their mean. Ticks on the horizontal axis: values of the predictor at the ",
+  "presences and pseudo-absences.\n\n"))
 
 VAR_LABELS <- c(bio06 = "BIO6 (\u00b0C)", bio14 = "BIO14 (mm)", ph = "pH")
 
